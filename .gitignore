@@ -46,6 +46,7 @@ temp/
 # Claude / AI tools
 .claude/
 CLAUDE.local.md
+CLAUDE.md
 
 # IDE
 .idea/
@@ -64,3 +65,5 @@ Thumbs.db
 
 # Misc
 *.pem
+time_manager-project.pdf
+Personas et besoins Time Manager.pdf
