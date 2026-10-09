@@ -1,0 +1,149 @@
+# Chemin : docker-compose.yml
+# DEV — docker compose up -d --build   →   http://localhost:8080
+# Valeurs par défaut utilisables depuis un clone propre (dev uniquement).
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  PORT: 3000
+  DB_HOST: database
+  DB_PORT: 5432
+  DB_USER: ${POSTGRES_USER:-app}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:-app_dev_password}
+  DB_NAME: ${POSTGRES_DB:-app}
+  JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
+  CORS_ORIGIN: http://localhost:${PUBLIC_PORT:-8080}
+  MIGRATION_COMMAND: ${MIGRATION_COMMAND:-}
+  CHECKPOINT_DISABLE: "1"        # Prisma : pas d'appel réseau ni d'écriture de cache (FS en lecture seule)
+
+services:
+  database:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks: [back-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Migrations (Prisma / TypeORM détectés automatiquement), avant le backend
+  migrate:
+    build:
+      context: ./server
+      target: runtime
+    image: app-backend:local
+    pull_policy: build
+    restart: "no"
+    command: ["app-migrate"]
+    environment: *backend-env
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [back-net]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  backend:
+    build:
+      context: ./server
+      target: runtime
+    image: app-backend:local
+    pull_policy: build
+    restart: unless-stopped
+    init: true
+    environment: *backend-env
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [front-net, back-net]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    build:
+      context: ./client
+      target: runtime
+    image: app-frontend:local
+    pull_policy: build
+    restart: unless-stopped
+    networks: [front-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  reverse-proxy:
+    build: ./reverse-proxy
+    image: app-proxy:local
+    pull_policy: build
+    restart: unless-stopped
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --log.level=INFO
+      - --accesslog=true
+      - --accesslog.format=json
+      - --providers.file.directory=/etc/traefik/dynamic
+      # Entrypoint public HTTP (dev)
+      - --entrypoints.web.address=:8080
+      - --entrypoints.web.asDefault=true
+      - --entrypoints.web.http.middlewares=security-headers@file,compress@file
+      - --entrypoints.web.transport.respondingTimeouts.readTimeout=30s
+      - --entrypoints.web.transport.respondingTimeouts.writeTimeout=60s
+      - --entrypoints.web.transport.respondingTimeouts.idleTimeout=180s
+      # Ping interne (healthcheck), non publié
+      - --ping=true
+      - --ping.entrypoint=ping
+      - --entrypoints.ping.address=:8082
+    ports:
+      - "${PUBLIC_PORT:-8080}:8080"   # SEUL port publié
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks: [front-net]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping", "--entrypoints.ping.address=:8082"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  front-net:
+    driver: bridge
+  back-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  db-data:

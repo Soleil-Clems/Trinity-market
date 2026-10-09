@@ -64,3 +64,10 @@ Thumbs.db
 
 # Misc
 *.pem
+
+.env
+.env.*
+!.env.example
+!.env.prod.example
+secrets/
+*.dump
