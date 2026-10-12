@@ -65,5 +65,12 @@ Thumbs.db
 
 # Misc
 *.pem
+
+.env
+.env.*
+!.env.example
+!.env.prod.example
+secrets/
+*.dump
 time_manager-project.pdf
 Personas et besoins Time Manager.pdf

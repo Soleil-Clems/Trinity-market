@@ -1,0 +1,28 @@
+# Chemin : server/.dockerignore
+# Dépendances & artefacts (reconstruits dans l'image)
+node_modules
+dist
+coverage
+.turbo
+
+# VCS / IDE
+.git
+.gitignore
+.vscode
+.idea
+
+# Secrets : aucun fichier .env ne doit entrer dans le contexte de build
+.env
+.env.*
+*.pem
+*.key
+
+# Docker / divers
+Dockerfile
+.dockerignore
+docker-compose*.yml
+npm-debug.log*
+*.log
+test
+**/*.spec.ts
+README.md

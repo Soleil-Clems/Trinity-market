@@ -1,0 +1,141 @@
+# Chemin : reverse-proxy/dynamic/app.yml
+# =====================================================================
+# Configuration dynamique Traefik — commune au dev et à la prod.
+# Les routeurs n'indiquent pas d'entrypoint : ils s'attachent à
+# l'entrypoint "asDefault" (web:8080 en dev, websecure:8443 en prod).
+# Les en-têtes de sécurité, la compression (et HSTS en prod) sont appliqués
+# au niveau de l'entrypoint, donc à TOUTES les réponses.
+# =====================================================================
+http:
+  routers:
+    api:
+      rule: "Path(`/api`) || PathPrefix(`/api/`)"
+      priority: 100
+      service: backend
+      middlewares:
+        - api-body-limit
+        - api-rate-limit
+
+    adminer:
+      rule: "PathPrefix(`/adminer`)"
+      priority: 200
+      service: adminer
+      middlewares:
+        - adminer-strip-prefix
+
+    frontend:
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: frontend
+      middlewares:
+        - front-body-limit
+
+  services:
+    backend:
+      loadBalancer:
+        serversTransport: app-transport
+        passHostHeader: true
+        servers:
+          - url: "http://backend:3000"
+        healthCheck:
+          path: /api/health
+          interval: 10s
+          timeout: 3s
+
+    adminer:
+      loadBalancer:
+        servers:
+          - url: "http://adminer:8080"
+
+    frontend:
+      loadBalancer:
+        serversTransport: app-transport
+        servers:
+          - url: "http://frontend:8080"
+        healthCheck:
+          path: /healthz
+          interval: 10s
+          timeout: 3s
+
+  serversTransports:
+    app-transport:
+      forwardingTimeouts:
+        dialTimeout: 5s
+        responseHeaderTimeout: 30s
+        idleConnTimeout: 90s
+
+  middlewares:
+    adminer-strip-prefix:
+      stripPrefix:
+        prefixes:
+          - "/adminer"
+          
+    # ---------- En-têtes de sécurité (dev + prod) ----------
+    security-headers:
+      headers:
+        # Next.js en export statique injecte des scripts inline (pas de nonce
+        # possible sans serveur) → 'unsafe-inline' requis pour script-src.
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:;
+          font-src 'self' data:;
+          connect-src 'self';
+          frame-ancestors 'none';
+          base-uri 'self';
+          form-action 'self';
+          object-src 'none'
+        contentTypeNosniff: true
+        frameDeny: true                       # X-Frame-Options: DENY
+        referrerPolicy: strict-origin-when-cross-origin
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        customResponseHeaders:
+          Cross-Origin-Opener-Policy: same-origin
+          Cross-Origin-Resource-Policy: same-origin
+          X-Powered-By: ""                    # valeur vide = en-tête supprimé
+          Server: ""
+
+    # ---------- HSTS (prod uniquement, ajouté sur l'entrypoint HTTPS) ----------
+    hsts:
+      headers:
+        stsSeconds: 63072000                  # 2 ans
+        stsIncludeSubdomains: true
+        stsPreload: true
+        forceSTSHeader: true
+
+    # ---------- Compression zstd / brotli / gzip ----------
+    compress:
+      compress:
+        encodings: [zstd, br, gzip]
+        minResponseBodyBytes: 1024
+        excludedContentTypes:
+          - text/event-stream
+
+    # ---------- Limites de taille des requêtes ----------
+    api-body-limit:
+      buffering:
+        maxRequestBodyBytes: 10485760         # 10 Mo
+        memRequestBodyBytes: 2097152          # au-delà de 2 Mo : tampon disque (/tmp)
+    front-body-limit:
+      buffering:
+        maxRequestBodyBytes: 1048576          # 1 Mo (front statique : GET quasi exclusivement)
+
+    # ---------- Anti-abus basique sur l'API ----------
+    api-rate-limit:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 200
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      cipherSuites:
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256

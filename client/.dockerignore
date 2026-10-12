@@ -1,0 +1,23 @@
+# Chemin : client/.dockerignore
+node_modules
+.next
+out
+coverage
+
+.git
+.gitignore
+.vscode
+.idea
+
+# Next lit automatiquement .env* au build : on les exclut du contexte
+.env
+.env.*
+*.pem
+*.key
+
+Dockerfile
+.dockerignore
+docker-compose*.yml
+npm-debug.log*
+*.log
+README.md

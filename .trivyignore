@@ -1,0 +1,4 @@
+# Chemin : .trivyignore
+# Exceptions Trivy justifiées uniquement (une ligne par CVE, avec motif et date de revue).
+# Exemple :
+# CVE-2026-00000  # non exploitable : module X non utilisé — revue le 2026-10-09 (DevOps)

@@ -1,3 +1,6 @@
+# Chemin : reverse-proxy/.dockerignore
+*
+!dynamic/
 .git
 .claude
 .docker
