@@ -1,11 +1,15 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   test: {
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    env: {
+      CORS_ORIGIN: 'http://localhost:3000',
+    },
   },
 });

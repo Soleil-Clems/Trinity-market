@@ -1,6 +1,6 @@
-COMPOSE := docker compose -f .docker/compose.dev.yml
+COMPOSE := docker compose --project-directory . -f .docker/docker-compose.yml
 
-.PHONY: up server client build down clean logs ps push
+.PHONY: up server client build down clean logs ps stop push
 
 ifeq (push,$(firstword $(MAKECMDGOALS)))
 MSG := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
@@ -15,13 +15,13 @@ push:
 	git push
 
 up:
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build -V
 
 server:
-	$(COMPOSE) up -d --build server
+	$(COMPOSE) up -d --build -V backend
 
 client:
-	$(COMPOSE) up -d --build client
+	$(COMPOSE) up -d --build -V frontend
 
 build:
 	$(COMPOSE) build
@@ -37,3 +37,12 @@ logs:
 
 ps:
 	$(COMPOSE) ps
+
+stop: 
+		@echo "=== Arret de tous les containers actifs... ==="
+		@if [ -n "$$(docker ps -q)" ]; then \
+			docker stop $$(docker ps -q); \
+			docker compose down -v; \
+		else \
+			echo "Aucun container actif."; \
+		fi
