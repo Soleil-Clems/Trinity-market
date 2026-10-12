@@ -1,6 +1,5 @@
 # C-01 · Personas, besoins & secteur d'activité — Time Manager
 
-Oct 6, 2026 · @Tanguy
 
 ## Résumé
 
