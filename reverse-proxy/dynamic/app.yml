@@ -16,6 +16,13 @@ http:
         - api-body-limit
         - api-rate-limit
 
+    adminer:
+      rule: "PathPrefix(`/adminer`)"
+      priority: 200
+      service: adminer
+      middlewares:
+        - adminer-strip-prefix
+
     frontend:
       rule: "PathPrefix(`/`)"
       priority: 1
@@ -35,6 +42,11 @@ http:
           interval: 10s
           timeout: 3s
 
+    adminer:
+      loadBalancer:
+        servers:
+          - url: "http://adminer:8080"
+
     frontend:
       loadBalancer:
         serversTransport: app-transport
@@ -53,6 +65,11 @@ http:
         idleConnTimeout: 90s
 
   middlewares:
+    adminer-strip-prefix:
+      stripPrefix:
+        prefixes:
+          - "/adminer"
+          
     # ---------- En-têtes de sécurité (dev + prod) ----------
     security-headers:
       headers:

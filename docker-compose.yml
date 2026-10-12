@@ -33,6 +33,22 @@ services:
       retries: 10
       start_period: 10s
 
+  adminer:
+    image: adminer:5
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: database
+      ADMINER_DESIGN: pepa-linha
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [front-net, back-net]
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
   # Migrations (Prisma / TypeORM détectés automatiquement), avant le backend
   migrate:
     build:

@@ -118,6 +118,23 @@ services:
         limits: { cpus: "0.5", memory: 128M }
     logging: *logging
 
+  adminer:
+    image: adminer:5
+    profiles: ["admin"]
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: database
+      ADMINER_DESIGN: pepa-linha
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [front-net, back-net]
+    <<: *hardening
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128M }
+    logging: *logging
+
   reverse-proxy:
     image: ${REGISTRY}/proxy:${APP_VERSION}
     restart: unless-stopped
