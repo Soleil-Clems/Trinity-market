@@ -1,3 +1,16 @@
 # Chemin : reverse-proxy/.dockerignore
 *
 !dynamic/
+.git
+.claude
+.docker
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+*.pdf
+*.md
+Makefile
