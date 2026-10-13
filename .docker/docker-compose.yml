@@ -1,5 +1,5 @@
-# Chemin : docker-compose.yml
-# DEV — docker compose up -d --build   →   http://localhost:8080
+# Chemin : .docker/docker-compose.yml
+# DEV — docker compose --project-directory . -f .docker/docker-compose.yml up -d --build   →   http://localhost:8080
 # Valeurs par défaut utilisables depuis un clone propre (dev uniquement).
 
 x-backend-env: &backend-env
@@ -71,12 +71,17 @@ services:
   backend:
     build:
       context: ./server
-      target: runtime
-    image: app-backend:local
-    pull_policy: build
+      target: deps
     restart: unless-stopped
     init: true
-    environment: *backend-env
+    command: ["sh", "-c", "npx prisma generate && npm run start:dev"]
+    environment:
+      <<: *backend-env
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app_dev_password}@database:5432/${POSTGRES_DB:-app}?schema=public
+    volumes:
+      - ./server:/app
+      - /app/node_modules
     depends_on:
       database:
         condition: service_healthy
@@ -88,29 +93,28 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 30s
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
+      start_period: 60s
     security_opt: ["no-new-privileges:true"]
 
   frontend:
     build:
       context: ./client
-      target: runtime
-    image: app-frontend:local
-    pull_policy: build
+      target: deps
     restart: unless-stopped
+    init: true
+    command: ["npm", "run", "dev", "--", "--port", "8080", "--hostname", "0.0.0.0"]
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+    volumes:
+      - ./client:/app
+      - /app/node_modules
     networks: [front-net]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz/ || exit 1"]
       interval: 15s
-      timeout: 3s
+      timeout: 5s
       retries: 3
-      start_period: 5s
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
+      start_period: 60s
     security_opt: ["no-new-privileges:true"]
 
   reverse-proxy:

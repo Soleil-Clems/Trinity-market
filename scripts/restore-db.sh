@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DUMP="${1:?usage: restore-db.sh <fichier.dump>}"
-COMPOSE="docker compose -f docker-compose.prod.yml"
+COMPOSE="docker compose --project-directory . -f .docker/docker-compose.prod.yml"
 
 [ -f "$DUMP.sha256" ] && sha256sum -c "$DUMP.sha256"
 

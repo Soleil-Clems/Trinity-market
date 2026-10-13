@@ -1,114 +1,123 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Time Manager — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API REST de l'application de pointage, en NestJS 12 et TypeScript. Toutes les routes sont préfixées par `/api`.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
-
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+## Lancer
 
 ```bash
-$ npm install
+cp .env.example .env
+npm install
+npm run start:dev
 ```
 
-## Compile and run the project
+L'API écoute sur http://localhost:3000. Avec Docker, `make up` depuis la racine lance toute la stack avec rechargement à chaud et expose l'API sur http://localhost:8080/api.
 
-```bash
-# development
-$ npm run start
+## Variables d'environnement
 
-# watch mode
-$ npm run start:dev
+Elles sont validées au démarrage par `src/config/env.ts`. Si une variable manque ou est invalide, l'application s'arrête avec un message qui la nomme.
 
-# production mode
-$ npm run start:prod
+| Variable | Obligatoire | Défaut | Rôle |
+| --- | --- | --- | --- |
+| `NODE_ENV` | Non | `development` | `development`, `test` ou `production` ; fixe le niveau de log |
+| `PORT` | Non | `3000` | Port d'écoute |
+| `CORS_ORIGIN` | Oui | — | Origines autorisées, séparées par des virgules |
+| `DATABASE_URL` | Oui | — | URL de connexion PostgreSQL |
+
+## Structure
+
+```
+src/
+  main.ts       démarrage : préfixe /api, CORS, logger
+  app.module.ts assemblage des modules, filtre d'erreurs et validation globaux
+  config/       schéma et validation des variables d'environnement
+  common/       code partagé : filtre d'erreurs, validation zod, logger
+  prisma/       PrismaService, la connexion à la base
+  health/       GET /api/health, avec l'état de la base
+  generated/    client Prisma généré, hors git
+prisma/         schéma, migrations et seed de démo
+test/           tests e2e
 ```
 
-## Run tests
+Les modules métier (`auth`, `users`, `teams`, `clocks`, `reports`) s'ajoutent à côté de `health/`, un dossier par module.
 
-```bash
-# unit tests
-$ npm run test
+## Base de données
 
-# e2e tests
-$ npm run test:e2e
+Le schéma est dans `prisma/schema.prisma` et les migrations dans `prisma/migrations/`. Le client Prisma est généré dans `src/generated/`, qui n'est pas versionné : lancer `npx prisma generate` après un clone ou un changement de schéma.
 
-# test coverage
-$ npm run test:cov
+Avec Docker, tout se fait depuis la racine du repo :
+
+| Commande | Rôle |
+| --- | --- |
+| `make up` | Applique les migrations en attente, puis démarre l'API |
+| `make seed` | Vide la base et charge le jeu de démo |
+| `make migration name=ajout_x` | Crée une migration après une modification du schéma |
+
+La base n'est pas exposée sur la machine hôte : les commandes Prisma qui la contactent passent par le conteneur `backend`.
+
+Trois règles sont écrites en SQL dans la migration, parce que Prisma ne sait pas les exprimer : une seule session ouverte par employé (index unique partiel), un départ postérieur à l'arrivée, et une fin d'absence qui ne précède pas son début.
+
+## Comptes de démo
+
+`make seed` crée 18 comptes, 3 équipes et 4 semaines de pointages qui se terminent la veille du jour où il est lancé. Tous les comptes ont le mot de passe `TimeManager-Demo-2026`.
+
+| Rôle | Email | À montrer |
+| --- | --- | --- |
+| Admin (RH) | `marc.dubois@trinitymarket.example` | Vue de toute l'entreprise |
+| Manager | `sophie.martin@trinitymarket.example` | Équipe Service client, créneaux tournants |
+| Manager | `nadia.benali@trinitymarket.example` | Équipes Entrepôt et Comptabilité |
+| Employée | `camille.laurent@trinitymarket.example` | Un départ oublié corrigé par sa manager |
+| Employé | `karim.haddad@trinitymarket.example` | Heures sup, journée de plus de 10 h, repos de moins de 11 h |
+| Employé | `lucas.petit@trinitymarket.example` | Retards fréquents |
+| Employé | `hugo.fournier@trinitymarket.example` | Session restée ouverte |
+| Employé | `thomas.garnier@trinitymarket.example` | Journées sans pause |
+
+Le seed refuse de tourner si `NODE_ENV` vaut `production`.
+
+## Documentation de l'API
+
+Swagger UI est servi sur http://localhost:8080/api/docs, hors production uniquement. La spécification OpenAPI générée depuis le code est disponible sur `/api/docs/openapi.json` et `/api/docs/openapi.yaml`.
+
+Les DTO créés avec `createZodDto` apparaissent automatiquement dans la spécification, à partir de leur schéma zod. Le reste se décrit sur les contrôleurs avec les décorateurs de `@nestjs/swagger` (`@ApiTags`, `@ApiOkResponse`…).
+
+## Format d'erreur
+
+Toute erreur passe par `AllExceptionsFilter` et renvoie la même forme :
+
+```json
+{
+  "statusCode": 404,
+  "error": "Not Found",
+  "message": "Cannot GET /api/unknown",
+  "requestId": "88070184-f541-4cde-97bb-b7c277586056",
+  "path": "/api/unknown",
+  "timestamp": "2026-10-12T14:17:56.126Z"
+}
 ```
 
-## Deployment
+Une entrée invalide renvoie un 422 avec un champ `details` qui liste chaque champ en erreur. Une erreur inattendue renvoie un 500 sans détail ; la cause est écrite dans les logs.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Validation des entrées
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Un DTO est une classe créée à partir d'un schéma zod. Le `ZodValidationPipe` global valide toute entrée typée par un tel DTO.
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```ts
+export class CreateTeamDto extends createZodDto(
+  z.object({ name: z.string().min(1), description: z.string().optional() }),
+) {}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Logs
 
-## Observability
+Les logs sortent en JSON sur la sortie standard (Pino). Chaque requête reçoit un identifiant, renvoyé dans l'en-tête `x-request-id` et repris dans le champ `requestId` des erreurs. Les en-têtes `authorization` et `cookie` sont masqués, et `/api/health` n'est pas journalisé.
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+## Commandes
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+| Commande | Rôle |
+| --- | --- |
+| `npm run start:dev` | API en mode watch |
+| `npm run build` | Compilation dans `dist/` |
+| `npm test` | Tests unitaires (`*.spec.ts`) |
+| `npm run test:e2e` | Tests e2e (`test/`) |
+| `npm run test:cov` | Couverture |
+| `npm run lint` | oxlint |
+| `npm run format` | Prettier |
