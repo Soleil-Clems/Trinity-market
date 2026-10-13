@@ -23,6 +23,13 @@ http:
       middlewares:
         - adminer-strip-prefix
 
+    adminer-trailing-slash:
+      rule: "Path(`/adminer`)"
+      priority: 250
+      service: noop@internal
+      middlewares:
+        - adminer-add-slash
+
     frontend:
       rule: "PathPrefix(`/`)"
       priority: 1
@@ -69,6 +76,12 @@ http:
       stripPrefix:
         prefixes:
           - "/adminer"
+
+    adminer-add-slash:
+      redirectRegex:
+        regex: "^(https?://[^/]+)/adminer(\\?.*)?$"
+        replacement: "${1}/adminer/${2}"
+        permanent: false
           
     # ---------- En-têtes de sécurité (dev + prod) ----------
     security-headers:

@@ -16,6 +16,7 @@ export const envSchema = z.object({
     )
     .pipe(z.array(z.url()).min(1)),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
+  JWT_SECRET: z.string().min(32),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -11,6 +11,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     )
     .setVersion('1.0.0')
     .addBearerAuth()
+    .addSecurityRequirements('bearer')
     .build();
 
   return SwaggerModule.createDocument(app, config);

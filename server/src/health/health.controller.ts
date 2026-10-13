@@ -1,6 +1,7 @@
 // Chemin : server/src/health/health.controller.ts
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../auth/public.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -8,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * Répond toujours 200 tant que le process tourne ; l'état de la base est dans le corps.
  */
 @ApiTags('health')
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}

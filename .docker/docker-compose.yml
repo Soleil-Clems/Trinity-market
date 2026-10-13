@@ -10,7 +10,7 @@ x-backend-env: &backend-env
   DB_USER: ${POSTGRES_USER:-app}
   DB_PASSWORD: ${POSTGRES_PASSWORD:-app_dev_password}
   DB_NAME: ${POSTGRES_DB:-app}
-  JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
+  JWT_SECRET: ${JWT_SECRET:-dev_only_secret_change_me_in_production_0123456789}
   CORS_ORIGIN: http://localhost:${PUBLIC_PORT:-8080}
   MIGRATION_COMMAND: ${MIGRATION_COMMAND:-}
   CHECKPOINT_DISABLE: "1"        # Prisma : pas d'appel réseau ni d'écriture de cache (FS en lecture seule)
@@ -49,6 +49,21 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  mailpit:
+    image: axllent/mailpit:v1.31.5
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "8025:8025"
+    networks: [front-net]
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
   # Migrations (Prisma / TypeORM détectés automatiquement), avant le backend
   migrate:
     build:
@@ -79,6 +94,9 @@ services:
       <<: *backend-env
       NODE_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app_dev_password}@database:5432/${POSTGRES_DB:-app}?schema=public
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      MAIL_FROM: no-reply@trinitymarket.example
     volumes:
       - ./server:/app
       - /app/node_modules

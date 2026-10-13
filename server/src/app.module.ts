@@ -4,6 +4,7 @@ import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AuthModule } from './auth/auth.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { buildLoggerParams } from './common/logger/logger.config.js';
 import { ZodValidationPipe } from './common/validation/zod-validation.pipe.js';
@@ -24,6 +25,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
         buildLoggerParams(config.get('NODE_ENV', { infer: true })),
     }),
     PrismaModule,
+    AuthModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

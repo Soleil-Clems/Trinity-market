@@ -4,7 +4,7 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 import { buildDataset, TIME_ZONE } from './seed/dataset.js';
 import { dateOnly, timeOfDay, todayIn } from './seed/time.js';
 
-export const DEMO_PASSWORD = 'TimeManager-Demo-2026';
+export const DEMO_PASSWORD = 'Testtest1#';
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
