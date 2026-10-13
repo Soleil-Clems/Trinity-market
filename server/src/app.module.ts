@@ -9,6 +9,7 @@ import { buildLoggerParams } from './common/logger/logger.config.js';
 import { ZodValidationPipe } from './common/validation/zod-validation.pipe.js';
 import { Env, validateEnv } from './config/env.js';
 import { HealthController } from './health/health.controller.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { HealthController } from './health/health.controller.js';
       useFactory: (config: ConfigService<Env, true>) =>
         buildLoggerParams(config.get('NODE_ENV', { infer: true })),
     }),
+    PrismaModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

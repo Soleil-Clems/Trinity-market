@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
+import { PrismaService } from './../src/prisma/prisma.service.js';
 
 describe('App (e2e)', () => {
   let app: INestApplication<App>;
@@ -10,7 +11,10 @@ describe('App (e2e)', () => {
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(PrismaService)
+      .useValue({ isHealthy: () => Promise.resolve(true) })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
@@ -33,7 +37,7 @@ describe('App (e2e)', () => {
       .get('/api/health')
       .expect(200);
 
-    expect(response.body).toMatchObject({ status: 'ok' });
+    expect(response.body).toMatchObject({ status: 'ok', database: 'up' });
     expect(response.headers['x-request-id']).toEqual(expect.any(String));
   });
 

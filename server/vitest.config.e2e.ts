@@ -10,6 +10,7 @@ export default defineConfig({
     include: ['**/*.e2e-spec.ts'],
     env: {
       CORS_ORIGIN: 'http://localhost:3000',
+      DATABASE_URL: 'postgresql://app:app@localhost:5432/app',
     },
   },
 });

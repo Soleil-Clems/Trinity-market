@@ -1,6 +1,6 @@
 COMPOSE := docker compose --project-directory . -f .docker/docker-compose.yml
 
-.PHONY: up server client build down clean logs ps stop push
+.PHONY: up server client build down clean logs ps seed migration stop push
 
 ifeq (push,$(firstword $(MAKECMDGOALS)))
 MSG := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
@@ -37,6 +37,13 @@ logs:
 
 ps:
 	$(COMPOSE) ps
+
+seed:
+	$(COMPOSE) exec backend npx prisma db seed
+
+migration:
+	@test -n "$(name)" || { echo 'Usage: make migration name=nom_de_la_migration'; exit 1; }
+	$(COMPOSE) exec backend npx prisma migrate dev --name $(name)
 
 stop: 
 		@echo "=== Arret de tous les containers actifs... ==="

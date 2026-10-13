@@ -74,10 +74,11 @@ services:
       target: deps
     restart: unless-stopped
     init: true
-    command: ["npm", "run", "start:dev"]
+    command: ["sh", "-c", "npx prisma generate && npm run start:dev"]
     environment:
       <<: *backend-env
       NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app_dev_password}@database:5432/${POSTGRES_DB:-app}?schema=public
     volumes:
       - ./server:/app
       - /app/node_modules
