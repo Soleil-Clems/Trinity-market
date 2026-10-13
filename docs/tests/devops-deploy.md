@@ -131,7 +131,7 @@ Le workflow `.github/workflows/images.yml` construit les trois images (`backend`
 
 Plusieurs mesures limitent les vulnérabilités :
 
-- versions de base épinglées : `node:24.19.0-alpine3.24`, `nginx-unprivileged:1.30.4-alpine`, `traefik:v3.7.11`, `postgres:17.11-alpine` ;
+- versions de base épinglées : `node:24.19.0-alpine3.24`, `nginx-unprivileged:1.30.4-alpine`, `traefik:v3.7.14`, `postgres:17.11-alpine` ;
 - `apk upgrade` au build ;
 - npm, yarn et corepack supprimés de l'image du backend.
 

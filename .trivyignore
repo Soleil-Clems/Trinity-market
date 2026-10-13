@@ -2,3 +2,9 @@
 # Exceptions Trivy justifiées uniquement (une ligne par CVE, avec motif et date de revue).
 # Exemple :
 # CVE-2026-00000  # non exploitable : module X non utilisé — revue le 2026-10-09 (DevOps)
+# Bibliothèque standard Go compilée dans le binaire Traefik v3.7.14 (dernière version publiée).
+# Dénis de service uniquement ; corrigés dans Go 1.26.9, pas encore repris par Traefik.
+# À retirer dès qu'une version de Traefik compilée avec Go >= 1.26.9 est disponible.
+CVE-2026-78667  # net/http, en-têtes Range — revue le 2026-10-13 (Backend, à valider par DevOps)
+CVE-2026-78669  # net/http2, trames SETTINGS — revue le 2026-10-13 (Backend, à valider par DevOps)
+CVE-2026-97031  # crypto/tls, extensions ECH — revue le 2026-10-13 (Backend, à valider par DevOps)
