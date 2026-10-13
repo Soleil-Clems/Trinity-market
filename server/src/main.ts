@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
+import { setupOpenApi } from './common/openapi/openapi.js';
 import { Env } from './config/env.js';
 
 async function bootstrap() {
@@ -25,7 +26,9 @@ async function bootstrap() {
   });
 
   // Swagger / outils de debug : uniquement hors prod
-  // if (!isProd) { SwaggerModule.setup('api/docs', app, document); }
+  if (config.get('NODE_ENV', { infer: true }) !== 'production') {
+    setupOpenApi(app);
+  }
 
   app.enableShutdownHooks();
   await app.listen(config.get('PORT', { infer: true }), '0.0.0.0');

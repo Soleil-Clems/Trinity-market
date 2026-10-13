@@ -73,6 +73,12 @@ Trois règles sont écrites en SQL dans la migration, parce que Prisma ne sait p
 
 Le seed refuse de tourner si `NODE_ENV` vaut `production`.
 
+## Documentation de l'API
+
+Swagger UI est servi sur http://localhost:8080/api/docs, hors production uniquement. La spécification OpenAPI générée depuis le code est disponible sur `/api/docs/openapi.json` et `/api/docs/openapi.yaml`.
+
+Les DTO créés avec `createZodDto` apparaissent automatiquement dans la spécification, à partir de leur schéma zod. Le reste se décrit sur les contrôleurs avec les décorateurs de `@nestjs/swagger` (`@ApiTags`, `@ApiOkResponse`…).
+
 ## Format d'erreur
 
 Toute erreur passe par `AllExceptionsFilter` et renvoie la même forme :
