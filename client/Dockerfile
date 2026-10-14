@@ -3,14 +3,16 @@
 ARG NODE_IMAGE=node:24.19.0-alpine3.24
 ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.4-alpine
 
-# ---------- Stage 1 : build — npm ci + next build (output: 'export') ----------
-FROM ${NODE_IMAGE} AS build
+# ---------- Stage 1 : deps ----------
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 
+# ---------- Stage 2 : build — next build (output: 'export') ----------
+FROM deps AS build
 COPY . .
 
 # Publique (embarquée dans le JS) → jamais de secret. /api = même origine via Traefik,
@@ -20,7 +22,7 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 RUN npm run build
 
-# ---------- Stage 2 : runtime — Nginx non-root ----------
+# ---------- Stage 3 : runtime — Nginx non-root ----------
 FROM ${NGINX_IMAGE} AS runtime
 
 # Correctifs de sécurité des paquets OS (scan Trivy)

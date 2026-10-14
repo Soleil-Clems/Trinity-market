@@ -67,7 +67,7 @@ Le plafond de 48 h par semaine est une règle hebdomadaire : il est affiché com
 | Périmètre | Équipe ; employé dans le tableau de bord du manager. Réservé aux équipes à créneaux (Service client, Opérations). |
 | Seuil d'alerte | Moins de 90 % sur la semaine. |
 
-Seuls les jours où l'employé a pointé sont comptés. Sans données de congés, un jour d'absence serait sinon assimilé à un retard.
+Seuls les jours où l'employé a pointé sont comptés. Un jour sans pointage est une absence et non un retard : il relève de la table `absences`.
 
 **Besoin couvert.** Sophie doit garantir la couverture de chaque créneau du service client et découvre aujourd'hui les retards en fin de semaine.
 
@@ -77,7 +77,7 @@ Seuls les jours où l'employé a pointé sont comptés. Sans données de congés
 
 ## KPI écarté
 
-**Taux de présence** (jours pointés ÷ jours ouvrés attendus). Déterminer les jours « attendus » demande les congés, les RTT, les arrêts maladie et les temps partiels, que l'application ne collecte pas. Sans eux, une semaine de vacances apparaît comme une absence ; les collecter ferait entrer des données de santé dans le périmètre RGPD.
+**Taux de présence** (jours pointés ÷ jours ouvrés attendus). Déterminer les jours « attendus » demande les congés, les RTT, les arrêts maladie et les temps partiels. Il a été écarté parce que l'application ne collectait pas ces données. Avec la table `absences`, il redevient calculable ; il reste écarté à ce stade, et sa réintroduction est à décider en équipe. Les arrêts maladie y sont rangés dans le type « autre », pour ne faire entrer aucune donnée de santé dans le périmètre RGPD.
 
 ## Impacts sur le modèle de données (C-04)
 
@@ -87,8 +87,12 @@ Seuls les jours où l'employé a pointé sont comptés. Sans données de congés
 | Heures contractuelles hebdomadaires par employé | KPI 1 | Prévu |
 | Fuseau horaire par employé | KPI 1, 2, 3 | Prévu |
 | Horaire prévu (par équipe ou par employé) | KPI 3 | À trancher |
+| Absences (congés payés, RTT, autres) | Écart au contrat du résumé d'heures (B-10) | Proposé, à valider |
+
+La table `absences` (employé, date de début, date de fin, type, auteur de la saisie) n'entre dans le calcul d'aucun des 3 KPIs. Elle sert à ne pas compter une semaine de congés comme des heures dues : chaque jour d'absence en semaine retire un cinquième du contrat hebdomadaire des heures attendues. Le type se limite à congés payés, RTT ou autre, sans motif médical.
 
 ## Écarts par rapport à C-01
 
 - Le plafond de 48 h par semaine, cité dans les contraintes légales de C-01, est ajouté au KPI 2 sous forme de compteur.
 - Le KPI 3 divise par les arrivées comptées et non par les arrivées attendues.
+- Le suivi des absences est ajouté au modèle de données, alors que C-01 ne le prévoit pas.

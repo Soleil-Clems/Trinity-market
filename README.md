@@ -23,23 +23,23 @@ L'application tourne en quatre services : `database` (PostgreSQL), `backend` (Ne
 **Dev** (depuis un clone propre, aucune configuration requise) :
 
 ```bash
-docker compose up -d --build        # → http://localhost:8080
+docker compose --project-directory . -f .docker/docker-compose.yml up -d --build   # → http://localhost:8080
 ./scripts/verify.sh                 # vérifie les critères d'acceptation
 ```
 
-**Prod** (sur le serveur, avec seulement `docker-compose.prod.yml`, `.env` et `secrets/`) :
+**Prod** (sur le serveur, avec seulement `.docker/docker-compose.prod.yml`, `.env` et `secrets/`) :
 
 ```bash
 cp .env.prod.example .env           # renseigner DOMAIN, ACME_EMAIL, REGISTRY, APP_VERSION
 ./scripts/gen-secrets.sh            # crée secrets/db_password.txt et secrets/jwt_secret.txt
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose --project-directory . -f .docker/docker-compose.prod.yml pull
+docker compose --project-directory . -f .docker/docker-compose.prod.yml up -d
 ./scripts/check-headers.sh https://$DOMAIN
 ```
 
 ## Différences dev / prod
 
-| Aspect | Dev — `docker-compose.yml` | Prod — `docker-compose.prod.yml` |
+| Aspect | Dev — `.docker/docker-compose.yml` | Prod — `.docker/docker-compose.prod.yml` |
 |---|---|---|
 | Images | construites localement (`build:`) | tirées du registre, tag figé `APP_VERSION` (aucun build, aucun code monté) |
 | Port public | `8080` en HTTP | `443` en HTTPS uniquement |
@@ -93,7 +93,7 @@ Limites et timeouts :
 
 ## HTTPS
 
-**Let's Encrypt (par défaut).** Le DNS de `DOMAIN` doit pointer vers le serveur et le port 443 doit être ouvert. Le challenge TLS-ALPN-01 passe par le port 443, donc le port 80 n'est pas nécessaire. Les certificats sont stockés dans le volume `traefik-acme` et renouvelés automatiquement. Pour vos essais, utilisez `ACME_CA_SERVER` avec l'URL de staging (indiquée dans `.env.prod.example`) afin de ne pas consommer le quota de production. Si vous voulez rediriger HTTP vers HTTPS, décommentez l'entrypoint `web` et le port `80` dans `docker-compose.prod.yml`.
+**Let's Encrypt (par défaut).** Le DNS de `DOMAIN` doit pointer vers le serveur et le port 443 doit être ouvert. Le challenge TLS-ALPN-01 passe par le port 443, donc le port 80 n'est pas nécessaire. Les certificats sont stockés dans le volume `traefik-acme` et renouvelés automatiquement. Pour vos essais, utilisez `ACME_CA_SERVER` avec l'URL de staging (indiquée dans `.env.prod.example`) afin de ne pas consommer le quota de production. Si vous voulez rediriger HTTP vers HTTPS, décommentez l'entrypoint `web` et le port `80` dans `.docker/docker-compose.prod.yml`.
 
 **Certificat auto-signé (préproduction sans domaine public).** Lancez la stack avec `DOMAIN=localhost`. Le challenge ACME échoue et Traefik sert automatiquement son certificat auto-signé par défaut. Le navigateur affiche alors un avertissement, que vous acceptez manuellement. Pour utiliser un certificat d'entreprise, ajoutez dans `reverse-proxy/dynamic/` un fichier déclarant `tls.stores.default.defaultCertificate`. Le certificat et sa clé doivent être montés en Docker secrets, jamais copiés dans l'image.
 
@@ -131,7 +131,7 @@ Le workflow `.github/workflows/images.yml` construit les trois images (`backend`
 
 Plusieurs mesures limitent les vulnérabilités :
 
-- versions de base épinglées : `node:24.19.0-alpine3.24`, `nginx-unprivileged:1.30.4-alpine`, `traefik:v3.7.11`, `postgres:17.11-alpine` ;
+- versions de base épinglées : `node:24.19.0-alpine3.24`, `nginx-unprivileged:1.30.4-alpine`, `traefik:v3.7.14`, `postgres:17.11-alpine` ;
 - `apk upgrade` au build ;
 - npm, yarn et corepack supprimés de l'image du backend.
 
@@ -141,11 +141,11 @@ L'option `--ignore-unfixed` exclut les CVE qui n'ont pas encore de correctif. To
 
 ```bash
 # Mise à jour : changer APP_VERSION dans .env puis
-docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+docker compose --project-directory . -f .docker/docker-compose.prod.yml pull && docker compose --project-directory . -f .docker/docker-compose.prod.yml up -d
 
 # Logs
-docker compose -f docker-compose.prod.yml logs -f --tail=100 backend
+docker compose --project-directory . -f .docker/docker-compose.prod.yml logs -f --tail=100 backend
 
 # État et healthchecks
-docker compose -f docker-compose.prod.yml ps
+docker compose --project-directory . -f .docker/docker-compose.prod.yml ps
 ```

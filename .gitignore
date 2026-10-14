@@ -74,3 +74,5 @@ secrets/
 *.dump
 time_manager-project.pdf
 Personas et besoins Time Manager.pdf
+# Prisma generated client
+server/src/generated/

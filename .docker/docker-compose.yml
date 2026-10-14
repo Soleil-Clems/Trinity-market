@@ -1,5 +1,5 @@
-# Chemin : docker-compose.yml
-# DEV — docker compose up -d --build   →   http://localhost:8080
+# Chemin : .docker/docker-compose.yml
+# DEV — docker compose --project-directory . -f .docker/docker-compose.yml up -d --build   →   http://localhost:8080
 # Valeurs par défaut utilisables depuis un clone propre (dev uniquement).
 
 x-backend-env: &backend-env
@@ -10,7 +10,7 @@ x-backend-env: &backend-env
   DB_USER: ${POSTGRES_USER:-app}
   DB_PASSWORD: ${POSTGRES_PASSWORD:-app_dev_password}
   DB_NAME: ${POSTGRES_DB:-app}
-  JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
+  JWT_SECRET: ${JWT_SECRET:-dev_only_secret_change_me_in_production_0123456789}
   CORS_ORIGIN: http://localhost:${PUBLIC_PORT:-8080}
   MIGRATION_COMMAND: ${MIGRATION_COMMAND:-}
   CHECKPOINT_DISABLE: "1"        # Prisma : pas d'appel réseau ni d'écriture de cache (FS en lecture seule)
@@ -49,6 +49,21 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  mailpit:
+    image: axllent/mailpit:v1.31.5
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "8025:8025"
+    networks: [front-net]
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
   # Migrations (Prisma / TypeORM détectés automatiquement), avant le backend
   migrate:
     build:
@@ -71,12 +86,20 @@ services:
   backend:
     build:
       context: ./server
-      target: runtime
-    image: app-backend:local
-    pull_policy: build
+      target: deps
     restart: unless-stopped
     init: true
-    environment: *backend-env
+    command: ["sh", "-c", "npx prisma generate && npm run start:dev"]
+    environment:
+      <<: *backend-env
+      NODE_ENV: development
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app_dev_password}@database:5432/${POSTGRES_DB:-app}?schema=public
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      MAIL_FROM: no-reply@trinitymarket.example
+    volumes:
+      - ./server:/app
+      - /app/node_modules
     depends_on:
       database:
         condition: service_healthy
@@ -88,29 +111,28 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 30s
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
+      start_period: 60s
     security_opt: ["no-new-privileges:true"]
 
   frontend:
     build:
       context: ./client
-      target: runtime
-    image: app-frontend:local
-    pull_policy: build
+      target: deps
     restart: unless-stopped
+    init: true
+    command: ["npm", "run", "dev", "--", "--port", "8080", "--hostname", "0.0.0.0"]
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+    volumes:
+      - ./client:/app
+      - /app/node_modules
     networks: [front-net]
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz/ || exit 1"]
       interval: 15s
-      timeout: 3s
+      timeout: 5s
       retries: 3
-      start_period: 5s
-    read_only: true
-    tmpfs: [/tmp]
-    cap_drop: [ALL]
+      start_period: 60s
     security_opt: ["no-new-privileges:true"]
 
   reverse-proxy:

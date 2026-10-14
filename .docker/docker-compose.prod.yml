@@ -1,6 +1,6 @@
-# Chemin : docker-compose.prod.yml
+# Chemin : .docker/docker-compose.prod.yml
 # =====================================================================
-# PRODUCTION — docker compose -f docker-compose.prod.yml up -d
+# PRODUCTION — docker compose --project-directory . -f .docker/docker-compose.prod.yml up -d
 #   • images construites et poussées par la CI (aucun build, aucun code monté)
 #   • secrets : fichiers ./secrets/* montés en Docker secrets (/run/secrets)
 #   • seul Traefik écoute, en 443 (HTTPS Let's Encrypt, challenge TLS-ALPN)

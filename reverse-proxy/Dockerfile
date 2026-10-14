@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Chemin : reverse-proxy/Dockerfile
-ARG TRAEFIK_IMAGE=traefik:v3.7.11
+ARG TRAEFIK_IMAGE=traefik:v3.7.14
 
 FROM ${TRAEFIK_IMAGE}
 
