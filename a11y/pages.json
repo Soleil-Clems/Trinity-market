@@ -1,0 +1,16 @@
+{
+  "_comment": "Chemin : a11y/pages.json — pages auditées. Adapter les chemins et sélecteurs à l'application (trailingSlash: true → chemins en '/').",
+  "login": {
+    "path": "/login/",
+    "email": "input[name=\"email\"]",
+    "password": "input[name=\"password\"]",
+    "submit": "button[type=\"submit\"]"
+  },
+  "pages": [
+    { "name": "Connexion", "path": "/login/", "role": null },
+    { "name": "Pointage", "path": "/clock/", "role": "employee" },
+    { "name": "Dashboard employé", "path": "/dashboard/", "role": "employee" },
+    { "name": "Dashboard manager", "path": "/manager/dashboard/", "role": "manager" },
+    { "name": "Gestion des utilisateurs", "path": "/admin/users/", "role": "admin" }
+  ]
+}

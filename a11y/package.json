@@ -1,0 +1,19 @@
+{
+  "name": "a11y-ci",
+  "private": true,
+  "description": "Audits d'accessibilité de la CI (pa11y-ci + Lighthouse CI)",
+  "scripts": {
+    "pa11y": "pa11y-ci --config pa11yci.cjs",
+    "lighthouse": "lhci autorun --config=lighthouserc.cjs",
+    "summary": "node summary.mjs"
+  },
+  "devDependencies": {
+    "@lhci/cli": "0.15.1",
+    "pa11y-ci": "5.0.0",
+    "pa11y-ci-reporter-html": "8.1.1",
+    "puppeteer": "25.13.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
