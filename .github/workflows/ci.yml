@@ -1,0 +1,541 @@
+# Chemin : .github/workflows/ci.yml
+# =====================================================================
+# Pipeline CI — un seul check requis pour fusionner : « CI OK ».
+#
+#   lint ──► build (images + Trivy)
+#   test-backend ─┐
+#   test-frontend ┴─► coverage-report (commentaire PR, informatif)
+#   secrets · dependencies · sast      (security gates)
+#   a11y                               (pa11y + Lighthouse)
+#   ───────────────────────────────►  CI OK (verdict + hygiène des logs)
+#
+# Politique : ::error:: = bloquant · ::warning:: = à surveiller · ::notice:: = info
+# =====================================================================
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  # Une PR = un seul run actif ; les pushes sur main/develop ne s'annulent pas entre eux
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  TRIVY_IMAGE: aquasec/trivy:0.72.0
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
+  COVERAGE_MIN_BACKEND: ${{ vars.COVERAGE_MIN_BACKEND || '70' }}
+  COVERAGE_MIN_FRONTEND: ${{ vars.COVERAGE_MIN_FRONTEND || '60' }}
+  RETENTION_DAYS: 14
+  # Onglet Security : dépôt public, ou privé avec GitHub Advanced Security (variable GHAS_ENABLED=true)
+  CODE_SCANNING: ${{ (github.event.repository.private == false || vars.GHAS_ENABLED == 'true') && 'true' || 'false' }}
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  # ------------------------------------------------------------------ LINT
+  lint:
+    name: Lint (${{ matrix.app }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { app: backend, dir: server }
+          - { app: frontend, dir: client }
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm   # cache ~/.npm via actions/cache, clé = hash du lockfile
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+      - name: Installer les dépendances
+        run: |
+          echo "::group::npm ci"
+          npm ci
+          echo "::endgroup::"
+      - name: ESLint
+        run: |
+          npx eslint . --format json --output-file "$RUNNER_TEMP/eslint.json" 2> "$RUNNER_TEMP/eslint.err" || true
+          node ../.github/scripts/eslint-report.mjs ${{ matrix.app }} "$RUNNER_TEMP/eslint.json" "$RUNNER_TEMP/eslint.err"
+
+  # ------------------------------------------------------------------ BUILD
+  build:
+    name: Build (${{ matrix.app }})
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { app: backend, dir: server, max_mb: 250 }
+          - { app: frontend, dir: client, max_mb: 50 }
+          - { app: proxy, dir: reverse-proxy, max_mb: 200 }
+    env:
+      IMAGE: ci/${{ matrix.app }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build de l'image (sans push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.dir }}
+          push: false
+          load: true          # image disponible localement pour Trivy
+          provenance: false
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+      - name: Taille de l'image
+        run: |
+          mb=$(( $(docker image inspect "$IMAGE" --format '{{.Size}}') / 1000000 ))
+          printf '### 🐳 Image `%s` : %s Mo (cible < %s Mo)\n\n' "${{ matrix.app }}" "$mb" "${{ matrix.max_mb }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$mb" -gt "${{ matrix.max_mb }}" ]; then
+            echo "::warning title=Taille image ${{ matrix.app }}::${mb} Mo, au-delà de la cible de ${{ matrix.max_mb }} Mo (non bloquant)."
+          fi
+      - name: Date du jour (clé de cache Trivy)
+        id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - name: Cache de la base Trivy
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.day.outputs.day }}
+          restore-keys: trivy-db-
+      - name: Security gate — Trivy (OS + librairies)
+        run: bash .github/scripts/trivy-gate.sh "$IMAGE" ${{ matrix.app }} reports/trivy
+      - name: Publier dans l'onglet Security
+        if: ${{ !cancelled() && env.CODE_SCANNING == 'true' && hashFiles(format('reports/trivy/{0}.sarif', matrix.app)) != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/trivy/${{ matrix.app }}.sarif
+          category: trivy-${{ matrix.app }}
+      - name: Rapport Trivy
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.app }}
+          path: reports/trivy/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------------ TESTS
+  test-backend:
+    name: Tests backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+          POSTGRES_DB: app_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d app_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      NODE_ENV: test
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_USER: ci
+      DB_NAME: app_test
+      DB_PASSWORD: ci_only_not_a_secret
+      DATABASE_URL: postgresql://ci:ci_only_not_a_secret@localhost:5432/app_test?schema=public
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Secrets de test (masqués dans les logs)
+        run: |
+          echo "::add-mask::$DB_PASSWORD"
+          jwt="$(openssl rand -hex 32)"
+          echo "::add-mask::$jwt"
+          echo "JWT_SECRET=$jwt" >> "$GITHUB_ENV"
+      - name: Installer les dépendances
+        id: deps
+        run: |
+          echo "::group::npm ci"
+          npm ci
+          echo "::endgroup::"
+      - name: Préparer la base de test
+        run: bash ../.github/scripts/db-migrate-ci.sh
+      - name: Tests unitaires + couverture
+        run: bash ../.github/scripts/run-unit-tests.sh backend
+      - name: Tests d'intégration (PostgreSQL)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        env:
+          JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/server/reports
+          JEST_JUNIT_OUTPUT_NAME: junit-integration.xml
+          JEST_JUNIT_SUITE_NAME: "backend — intégration"
+        run: |
+          if [ ! -f test/jest-e2e.json ]; then
+            echo "::notice title=Tests d'intégration::test/jest-e2e.json absent : étape ignorée."
+            exit 0
+          fi
+          npm ls jest-junit >/dev/null 2>&1 || npm install --no-save jest-junit@17 >/dev/null
+          npx jest --ci --config test/jest-e2e.json --runInBand --reporters=default --reporters=jest-junit
+      - name: Résumé, seuil de couverture
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: node ../.github/scripts/coverage-gate.mjs backend coverage/coverage-summary.json "$COVERAGE_MIN_BACKEND" reports/junit-*.xml
+      - name: Rapport JUnit (onglet Checks)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        uses: dorny/test-reporter@v2
+        continue-on-error: true   # PR de fork : pas de droit checks:write
+        with:
+          name: Résultats des tests — backend
+          path: server/reports/junit-*.xml
+          reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: false
+      - name: Artefact de couverture
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: |
+            server/coverage/
+            server/reports/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          if-no-files-found: ignore
+
+  test-frontend:
+    name: Tests frontend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: write
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: "1"
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Installer les dépendances
+        id: deps
+        run: |
+          echo "::group::npm ci"
+          npm ci
+          echo "::endgroup::"
+      - name: Tests unitaires + couverture
+        run: bash ../.github/scripts/run-unit-tests.sh frontend
+      - name: Résumé, seuil de couverture
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: node ../.github/scripts/coverage-gate.mjs frontend coverage/coverage-summary.json "$COVERAGE_MIN_FRONTEND" reports/junit-*.xml
+      - name: Rapport JUnit (onglet Checks)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        uses: dorny/test-reporter@v2
+        continue-on-error: true
+        with:
+          name: Résultats des tests — frontend
+          path: client/reports/junit-*.xml
+          reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: false
+      - name: Artefact de couverture
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-frontend
+          path: |
+            client/coverage/
+            client/reports/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          if-no-files-found: ignore
+
+  coverage-report:
+    name: Rapport de couverture
+    needs: [test-backend, test-frontend]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: artifacts
+      - name: Référence de la branche cible
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: coverage-base
+          key: coverage-base-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: coverage-base-${{ github.base_ref }}-
+      - name: Construire le résumé
+        run: node .github/scripts/coverage-comment.mjs artifacts coverage-base "$RUNNER_TEMP/coverage.md"
+      - name: Commenter la PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true   # PR de fork : jeton en lecture seule
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync(`${process.env.RUNNER_TEMP}/coverage.md`, 'utf8');
+            const marker = '<!-- ci-coverage-report -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find((c) => c.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });
+      - name: Enregistrer la référence (main / develop)
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p coverage-base
+          for app in backend frontend; do
+            f="artifacts/coverage-$app/coverage/coverage-summary.json"
+            [ -f "$f" ] && jq '.total' "$f" > "coverage-base/$app.json" || true
+          done
+      - if: github.event_name == 'push'
+        uses: actions/cache/save@v4
+        with:
+          path: coverage-base
+          key: coverage-base-${{ github.ref_name }}-${{ github.run_id }}
+
+  # ------------------------------------------------------------------ SECURITY GATES
+  secrets:
+    name: Security — secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks (commits de la PR / du push)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: bash .github/scripts/gitleaks-gate.sh
+      - name: Publier dans l'onglet Security
+        if: ${{ !cancelled() && env.CODE_SCANNING == 'true' && hashFiles('reports/gitleaks/gitleaks.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/gitleaks/gitleaks.sarif
+          category: gitleaks
+
+  dependencies:
+    name: Security — dépendances
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit (HIGH/CRITICAL en production = bloquant)
+        run: node .github/scripts/npm-audit-gate.mjs server client a11y
+      - name: Dependency review (dépendances ajoutées par la PR)
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && env.CODE_SCANNING == 'true' }}
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          warn-on-openssf-scorecard-level: 3
+
+  sast:
+    name: Security — SAST (CodeQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - "**/node_modules"
+              - "**/*.spec.ts"
+              - "**/*.test.ts"
+              - "**/*.test.tsx"
+              - a11y
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+          output: reports/codeql
+          upload: ${{ env.CODE_SCANNING == 'true' && 'always' || 'never' }}
+      - name: Gate SAST (HIGH/CRITICAL = bloquant)
+        run: bash .github/scripts/sarif-gate.sh reports/codeql CodeQL
+      - name: Rapport CodeQL
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif
+          path: reports/codeql/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------------ ACCESSIBILITÉ
+  a11y:
+    name: Accessibilité (WCAG 2.1 AA)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      A11Y_BASE_URL: http://localhost:8080
+      A11Y_EMPLOYEE_EMAIL: employee@a11y.test
+      A11Y_MANAGER_EMAIL: manager@a11y.test
+      A11Y_ADMIN_EMAIL: admin@a11y.test
+      SEED_COMMAND: ${{ vars.A11Y_SEED_COMMAND || 'node dist/database/seed.js' }}
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.ci.yml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build des images (cache partagé avec le job build)
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: docker-compose.yml
+          targets: backend,frontend,reverse-proxy
+          load: true
+          set: |
+            backend.cache-from=type=gha,scope=backend
+            frontend.cache-from=type=gha,scope=frontend
+            reverse-proxy.cache-from=type=gha,scope=proxy
+      - name: Démarrer l'application
+        id: app
+        run: |
+          echo "::group::docker compose up"
+          $COMPOSE up -d --wait --no-build
+          echo "::endgroup::"
+      - name: Mots de passe des comptes de test (masqués)
+        run: |
+          for role in EMPLOYEE MANAGER ADMIN; do
+            pw="$(openssl rand -hex 16)"
+            echo "::add-mask::$pw"
+            echo "A11Y_${role}_PASSWORD=$pw" >> "$GITHUB_ENV"
+          done
+      - name: Créer les comptes de test (seed)
+        if: env.SEED_COMMAND != 'none'
+        run: |
+          SEED_USERS="$(jq -nc \
+            --arg e1 "$A11Y_EMPLOYEE_EMAIL" --arg p1 "$A11Y_EMPLOYEE_PASSWORD" \
+            --arg e2 "$A11Y_MANAGER_EMAIL"  --arg p2 "$A11Y_MANAGER_PASSWORD" \
+            --arg e3 "$A11Y_ADMIN_EMAIL"    --arg p3 "$A11Y_ADMIN_PASSWORD" \
+            '[{email:$e1,password:$p1,role:"employee"},{email:$e2,password:$p2,role:"manager"},{email:$e3,password:$p3,role:"admin"}]')"
+          export SEED_USERS
+          $COMPOSE run --rm -T -e SEED_USERS -e ALLOW_SEED=true migrate $SEED_COMMAND
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: a11y/package-lock.json
+      - name: Cache du navigateur Puppeteer
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: puppeteer-${{ hashFiles('a11y/package-lock.json') }}
+      - name: Installer pa11y-ci et Lighthouse CI
+        working-directory: a11y
+        run: |
+          echo "::group::npm ci"
+          npm ci
+          echo "::endgroup::"
+      - name: pa11y-ci (0 erreur WCAG 2.1 AA)
+        id: pa11y
+        working-directory: a11y
+        run: npm run pa11y
+      - name: Lighthouse CI (score accessibilité ≥ 90)
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        working-directory: a11y
+        run: |
+          echo "::group::Lighthouse CI"
+          npm run lighthouse
+          echo "::endgroup::"
+      - name: Résumé
+        if: ${{ !cancelled() }}
+        working-directory: a11y
+        run: npm run --silent summary
+      - name: Logs de l'application (en cas d'échec)
+        if: failure()
+        run: |
+          echo "::group::docker compose logs"
+          $COMPOSE logs --tail=80 migrate backend frontend reverse-proxy
+          echo "::endgroup::"
+      - name: Rapport d'accessibilité
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-report
+          path: reports/a11y/
+          retention-days: ${{ env.RETENTION_DAYS }}
+          if-no-files-found: ignore
+      - name: Arrêter l'application
+        if: always()
+        run: $COMPOSE down -v --remove-orphans
+
+  # ------------------------------------------------------------------ VERDICT
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [lint, build, test-backend, test-frontend, coverage-report, secrets, dependencies, sast, a11y]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - name: Verdict
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: node .github/scripts/ci-verdict.mjs
+      - name: Hygiène des logs (secrets, données personnelles)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/log-hygiene.sh

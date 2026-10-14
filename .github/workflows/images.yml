@@ -12,7 +12,7 @@ permissions:
 
 env:
   # Épingler sur une version vérifiée de Trivy
-  TRIVY_IMAGE: aquasec/trivy:latest
+  TRIVY_IMAGE: aquasec/trivy:0.72.0
 
 jobs:
   build-scan-push:
