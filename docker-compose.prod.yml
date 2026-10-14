@@ -1,0 +1,190 @@
+# Chemin : docker-compose.prod.yml
+# =====================================================================
+# PRODUCTION — docker compose -f docker-compose.prod.yml up -d
+#   • images construites et poussées par la CI (aucun build, aucun code monté)
+#   • secrets : fichiers ./secrets/* montés en Docker secrets (/run/secrets)
+#   • seul Traefik écoute, en 443 (HTTPS Let's Encrypt, challenge TLS-ALPN)
+# Prérequis : .env (depuis .env.prod.example) + ./scripts/gen-secrets.sh
+# =====================================================================
+name: app-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+    compress: "true"
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-backend-env: &backend-env
+  NODE_ENV: production
+  PORT: 3000
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DB_HOST: database
+  DB_PORT: 5432
+  DB_USER: ${POSTGRES_USER:?POSTGRES_USER requis}
+  DB_NAME: ${POSTGRES_DB:?POSTGRES_DB requis}
+  DB_PASSWORD_FILE: /run/secrets/db_password
+  JWT_SECRET_FILE: /run/secrets/jwt_secret
+  CORS_ORIGIN: https://${DOMAIN:?DOMAIN requis}
+  MIGRATION_COMMAND: ${MIGRATION_COMMAND:-}
+  CHECKPOINT_DISABLE: "1"        # Prisma : pas d'appel réseau ni d'écriture de cache (FS en lecture seule)
+
+services:
+  database:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks: [back-net]
+    # Aucun "ports:" : la base n'est joignable que depuis back-net
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1G }
+        reservations: { memory: 256M }
+    logging: *logging
+
+  # Migrations exécutées automatiquement à chaque `up`, avant le backend
+  migrate:
+    image: ${REGISTRY:?REGISTRY requis}/backend:${APP_VERSION:?APP_VERSION requis}
+    restart: "no"
+    command: ["app-migrate"]   # Prisma / TypeORM auto-détectés, ou MIGRATION_COMMAND
+    environment: *backend-env
+    secrets: [db_password, jwt_secret]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [back-net]
+    <<: *hardening
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+    logging: *logging
+
+  backend:
+    image: ${REGISTRY}/backend:${APP_VERSION}
+    restart: unless-stopped
+    init: true
+    environment: *backend-env
+    secrets: [db_password, jwt_secret]
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [front-net, back-net]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    <<: *hardening
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { memory: 128M }
+    logging: *logging
+
+  frontend:
+    image: ${REGISTRY}/frontend:${APP_VERSION}
+    restart: unless-stopped
+    networks: [front-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    <<: *hardening
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 128M }
+    logging: *logging
+
+  reverse-proxy:
+    image: ${REGISTRY}/proxy:${APP_VERSION}
+    restart: unless-stopped
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --log.level=WARN
+      - --accesslog=true
+      - --accesslog.format=json
+      - --providers.file.directory=/etc/traefik/dynamic
+      # ---- HTTPS (seul port public) ----
+      - --entrypoints.websecure.address=:8443
+      - --entrypoints.websecure.asDefault=true
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --entrypoints.websecure.http.tls.domains[0].main=${DOMAIN}
+      - --entrypoints.websecure.http.middlewares=security-headers@file,hsts@file,compress@file
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=30s
+      - --entrypoints.websecure.transport.respondingTimeouts.writeTimeout=60s
+      - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=180s
+      # ---- Let's Encrypt via TLS-ALPN-01 : fonctionne avec le seul port 443 ----
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?ACME_EMAIL requis}
+      - --certificatesresolvers.le.acme.storage=/data/acme.json
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --certificatesresolvers.le.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      # ---- Ping interne (healthcheck), non publié ----
+      - --ping=true
+      - --ping.entrypoint=ping
+      - --entrypoints.ping.address=:8082
+      # Optionnel : redirection HTTP→HTTPS (décommenter aussi le port 80 ci-dessous)
+      # - --entrypoints.web.address=:8000
+      # - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      # - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    ports:
+      - "443:8443"
+      # - "80:8000"
+    volumes:
+      - traefik-acme:/data         # certificats Let's Encrypt persistants
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks: [front-net]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping", "--entrypoints.ping.address=:8082"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    <<: *hardening
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+    logging: *logging
+
+networks:
+  front-net:
+    driver: bridge
+  back-net:
+    driver: bridge
+    internal: true
+
+volumes:
+  db-data:
+  traefik-acme:
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt

@@ -1,0 +1,13 @@
+# Chemin : docker-compose.ci.yml
+# CI uniquement (job a11y) : les images sont construites au préalable par
+# docker/bake-action avec le cache GHA ; Compose ne doit ni les reconstruire ni les tirer.
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --wait --no-build
+services:
+  migrate:
+    pull_policy: never
+  backend:
+    pull_policy: never
+  frontend:
+    pull_policy: never
+  reverse-proxy:
+    pull_policy: never
