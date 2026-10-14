@@ -5,6 +5,7 @@ import { AuthGuard } from './auth.guard.js';
 
 const SECRET = 'unit-test-secret-of-at-least-32-chars';
 const USER_ID = '0199d8a0-0000-7000-8000-000000000001';
+const SESSION_ID = '0199d8a0-0000-7000-8000-000000000002';
 
 function createContext(authorization?: string, isPublic = false) {
   const request: Record<string, unknown> = { headers: { authorization } };
@@ -56,13 +57,21 @@ describe('AuthGuard', () => {
   });
 
   it('attaches the user of a valid token to the request', async () => {
-    const token = await jwt.signAsync({ sub: USER_ID, role: 'MANAGER' });
+    const token = await jwt.signAsync({
+      sub: USER_ID,
+      role: 'MANAGER',
+      sid: SESSION_ID,
+    });
     const { request, reflector, context } = createContext(`Bearer ${token}`);
 
     await expect(
       new AuthGuard(reflector, jwt).canActivate(context),
     ).resolves.toBe(true);
-    expect(request.user).toEqual({ id: USER_ID, role: 'MANAGER' });
+    expect(request.user).toEqual({
+      id: USER_ID,
+      role: 'MANAGER',
+      sessionId: SESSION_ID,
+    });
   });
 
   it('rejects a token signed with another secret', async () => {

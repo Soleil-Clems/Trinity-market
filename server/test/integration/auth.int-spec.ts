@@ -63,7 +63,9 @@ describe('Auth (integration)', () => {
   });
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
+    await prisma.$executeRawUnsafe(
+      'TRUNCATE TABLE "users", "auth_attempts" CASCADE',
+    );
 
     const passwordHash = await app.get(PasswordService).hash(PASSWORD);
     const person = {
@@ -175,7 +177,11 @@ describe('Auth (integration)', () => {
         .set('Authorization', `Bearer ${body.accessToken}`)
         .expect(200);
 
-      expect(response.body).toEqual({ id: userId, role: 'EMPLOYEE' });
+      expect(response.body).toEqual({
+        id: userId,
+        role: 'EMPLOYEE',
+        sessionId: expect.any(String),
+      });
     });
 
     it('keeps the public routes open', async () => {

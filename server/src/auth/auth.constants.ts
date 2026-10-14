@@ -3,3 +3,7 @@ export const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const REFRESH_COOKIE_NAME = 'refresh_token';
 export const REFRESH_COOKIE_PATH = '/api/auth';
 export const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
+export const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+export const ACTIVATION_TTL_MS = 72 * 60 * 60 * 1000;
+export const MAX_ATTEMPTS = 5;
+export const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;

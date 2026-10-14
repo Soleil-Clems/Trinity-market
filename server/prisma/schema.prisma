@@ -165,6 +165,16 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
+model AuthAttempt {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  keyHash     String   @map("key_hash") @db.VarChar(64)
+  attemptedAt DateTime @default(now()) @map("attempted_at") @db.Timestamptz(3)
+
+  @@index([keyHash, attemptedAt])
+  @@index([attemptedAt])
+  @@map("auth_attempts")
+}
+
 model AuditLog {
   id         String   @id @default(uuid(7)) @db.Uuid
   actorId    String?  @map("actor_id") @db.Uuid

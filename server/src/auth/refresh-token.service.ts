@@ -1,10 +1,12 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { REFRESH_TOKEN_TTL_MS } from './auth.constants.js';
+import { generateOpaqueToken, hashOpaqueToken } from './opaque-token.js';
 
 export interface IssuedRefreshToken {
   token: string;
+  familyId: string;
   expiresAt: Date;
 }
 
@@ -16,32 +18,28 @@ export type RotationResult =
 export class RefreshTokenService {
   constructor(private readonly prisma: PrismaService) {}
 
-  static hashToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
-  }
-
   async issue(
     userId: string,
     familyId: string = randomUUID(),
   ): Promise<IssuedRefreshToken> {
-    const token = randomBytes(32).toString('base64url');
+    const token = generateOpaqueToken();
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
 
     await this.prisma.refreshToken.create({
       data: {
         userId,
         familyId,
-        tokenHash: RefreshTokenService.hashToken(token),
+        tokenHash: hashOpaqueToken(token),
         expiresAt,
       },
     });
 
-    return { token, expiresAt };
+    return { token, familyId, expiresAt };
   }
 
   async rotate(token: string): Promise<RotationResult> {
     const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash: RefreshTokenService.hashToken(token) },
+      where: { tokenHash: hashOpaqueToken(token) },
       include: { user: { select: { deletedAt: true } } },
     });
 
@@ -77,13 +75,24 @@ export class RefreshTokenService {
 
   async revoke(token: string): Promise<void> {
     const stored = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash: RefreshTokenService.hashToken(token) },
+      where: { tokenHash: hashOpaqueToken(token) },
       select: { familyId: true },
     });
 
     if (stored) {
       await this.revokeFamily(stored.familyId);
     }
+  }
+
+  async revokeAllForUser(userId: string, keepFamilyId?: string): Promise<void> {
+    await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(keepFamilyId ? { familyId: { not: keepFamilyId } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
   }
 
   private async revokeFamily(familyId: string): Promise<void> {
