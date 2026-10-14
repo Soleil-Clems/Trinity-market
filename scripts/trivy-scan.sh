@@ -4,7 +4,7 @@
 # Usage : ./scripts/trivy-scan.sh [image ...]   (par défaut : les images locales de dev)
 # Épingler TRIVY_IMAGE sur une version vérifiée (ex. aquasec/trivy:0.xx.y).
 set -euo pipefail
-TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:latest}"
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.72.0}"
 IMAGES=("$@")
 [ ${#IMAGES[@]} -eq 0 ] && IMAGES=(app-backend:local app-frontend:local app-proxy:local)
 
