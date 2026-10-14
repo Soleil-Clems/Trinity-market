@@ -22,6 +22,7 @@ Elles sont validées au démarrage par `src/config/env.ts`. Si une variable manq
 | `PORT` | Non | `3000` | Port d'écoute |
 | `CORS_ORIGIN` | Oui | — | Origines autorisées, séparées par des virgules |
 | `DATABASE_URL` | Oui | — | URL de connexion PostgreSQL |
+| `JWT_SECRET` | Oui | — | Secret de signature des access tokens, 32 caractères minimum |
 
 ## Structure
 
@@ -32,10 +33,11 @@ src/
   config/       schéma et validation des variables d'environnement
   common/       code partagé : filtre d'erreurs, validation zod, logger
   prisma/       PrismaService, la connexion à la base
+  auth/         login, refresh, logout, guard global et décorateur @Public
   health/       GET /api/health, avec l'état de la base
   generated/    client Prisma généré, hors git
 prisma/         schéma, migrations et seed de démo
-test/           tests e2e
+test/           tests e2e ; test/integration/ pour les tests sur une vraie base
 ```
 
 Les modules métier (`auth`, `users`, `teams`, `clocks`, `reports`) s'ajoutent à côté de `health/`, un dossier par module.
@@ -58,7 +60,7 @@ Trois règles sont écrites en SQL dans la migration, parce que Prisma ne sait p
 
 ## Comptes de démo
 
-`make seed` crée 18 comptes, 3 équipes et 4 semaines de pointages qui se terminent la veille du jour où il est lancé. Tous les comptes ont le mot de passe `TimeManager-Demo-2026`.
+`make seed` crée 18 comptes, 3 équipes et 4 semaines de pointages qui se terminent la veille du jour où il est lancé. Tous les comptes ont le mot de passe `Testtest1#`.
 
 | Rôle | Email | À montrer |
 | --- | --- | --- |
@@ -72,6 +74,26 @@ Trois règles sont écrites en SQL dans la migration, parce que Prisma ne sait p
 | Employé | `thomas.garnier@trinitymarket.example` | Journées sans pause |
 
 Le seed refuse de tourner si `NODE_ENV` vaut `production`.
+
+## Authentification
+
+| Route | Rôle |
+| --- | --- |
+| `POST /api/auth/login` | Vérifie l'email et le mot de passe, renvoie un access token et pose le cookie de refresh |
+| `POST /api/auth/refresh` | Renvoie un nouvel access token et remplace le refresh token |
+| `POST /api/auth/logout` | Révoque la session et supprime le cookie |
+
+- **Access token** : JWT signé en HS256, valable 15 minutes, à envoyer dans l'en-tête `Authorization: Bearer <token>`. Il contient l'identifiant et le rôle.
+- **Refresh token** : valeur aléatoire valable 7 jours, envoyée dans le cookie `refresh_token` (`httpOnly`, `SameSite=Strict`, path `/api/auth`, `Secure` en production). Seul son hash SHA-256 est stocké en base.
+- **Rotation** : chaque appel à `refresh` révoque le token utilisé et en émet un nouveau. Un token présenté une seconde fois révoque toute la session.
+- **Routes protégées par défaut** : `AuthGuard` est global. Une route ouverte se marque avec `@Public()`.
+- **Anti-énumération** : email inconnu, mot de passe faux, compte supprimé et compte sans mot de passe renvoient le même 401, après un temps de calcul équivalent.
+
+Dans un contrôleur, l'utilisateur connecté se récupère avec `@CurrentUser() user: AuthenticatedUser`. Le type doit être importé avec `import type`, sinon la compilation échoue.
+
+## Mails en développement
+
+Mailpit intercepte les mails envoyés par le backend (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`) et les affiche sur http://localhost:8025. Aucun mail ne sort réellement.
 
 ## Documentation de l'API
 
@@ -118,6 +140,7 @@ Les logs sortent en JSON sur la sortie standard (Pino). Chaque requête reçoit 
 | `npm run build` | Compilation dans `dist/` |
 | `npm test` | Tests unitaires (`*.spec.ts`) |
 | `npm run test:e2e` | Tests e2e (`test/`) |
+| `make test-int` (racine) | Tests d'intégration sur une base `app_test`, dans le conteneur `backend` |
 | `npm run test:cov` | Couverture |
 | `npm run lint` | oxlint |
 | `npm run format` | Prettier |

@@ -31,7 +31,11 @@ export function buildLoggerParams(nodeEnv: Env['NODE_ENV']): Params {
     pinoHttp: {
       level: LOG_LEVELS[nodeEnv],
       genReqId: resolveRequestId,
-      redact: ['req.headers.authorization', 'req.headers.cookie'],
+      redact: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'res.headers["set-cookie"]',
+      ],
       autoLogging: {
         ignore: (request) => request.url === '/api/health',
       },
