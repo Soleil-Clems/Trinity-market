@@ -1,0 +1,12 @@
+# Chemin : .gitleaks.toml
+# Règles gitleaks par défaut + exceptions documentées (fichiers sans secret réel).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Modèles et fichiers générés sans secret"
+paths = [
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)\.env(\.prod)?\.example$''',
+  '''(^|/)a11y/pages\.json$''',
+]
