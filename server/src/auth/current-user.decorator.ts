@@ -4,6 +4,7 @@ import type { Role } from '../generated/prisma/enums.js';
 export interface AuthenticatedUser {
   id: string;
   role: Role;
+  sessionId: string;
 }
 
 export const CurrentUser = createParamDecorator(

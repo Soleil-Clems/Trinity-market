@@ -23,6 +23,10 @@ Elles sont validées au démarrage par `src/config/env.ts`. Si une variable manq
 | `CORS_ORIGIN` | Oui | — | Origines autorisées, séparées par des virgules |
 | `DATABASE_URL` | Oui | — | URL de connexion PostgreSQL |
 | `JWT_SECRET` | Oui | — | Secret de signature des access tokens, 32 caractères minimum |
+| `APP_URL` | Oui | — | Adresse publique du front, utilisée pour les liens envoyés par mail |
+| `SMTP_HOST` | Oui | — | Serveur SMTP (`mailpit` en dev) |
+| `SMTP_PORT` | Oui | — | Port SMTP (`1025` pour Mailpit) |
+| `MAIL_FROM` | Oui | — | Expéditeur des mails |
 
 ## Structure
 
@@ -33,7 +37,8 @@ src/
   config/       schéma et validation des variables d'environnement
   common/       code partagé : filtre d'erreurs, validation zod, logger
   prisma/       PrismaService, la connexion à la base
-  auth/         login, refresh, logout, guard global et décorateur @Public
+  auth/         login, refresh, logout, mots de passe, anti brute-force, guard global
+  mail/         envoi des mails en SMTP (nodemailer)
   health/       GET /api/health, avec l'état de la base
   generated/    client Prisma généré, hors git
 prisma/         schéma, migrations et seed de démo
@@ -60,7 +65,7 @@ Trois règles sont écrites en SQL dans la migration, parce que Prisma ne sait p
 
 ## Comptes de démo
 
-`make seed` crée 18 comptes, 3 équipes et 4 semaines de pointages qui se terminent la veille du jour où il est lancé. Tous les comptes ont le mot de passe `Testtest1#`.
+`make seed` crée 18 comptes, 3 équipes et 4 semaines de pointages qui se terminent la veille du jour où il est lancé. Tous les comptes ont le mot de passe `Testtest1#`. Il fait moins de 12 caractères : le seed écrit le hash directement et n'est pas soumis à la politique des mots de passe, qui ne s'applique qu'aux mots de passe choisis par l'API.
 
 | Rôle | Email | À montrer |
 | --- | --- | --- |
@@ -82,18 +87,41 @@ Le seed refuse de tourner si `NODE_ENV` vaut `production`.
 | `POST /api/auth/login` | Vérifie l'email et le mot de passe, renvoie un access token et pose le cookie de refresh |
 | `POST /api/auth/refresh` | Renvoie un nouvel access token et remplace le refresh token |
 | `POST /api/auth/logout` | Révoque la session et supprime le cookie |
+| `POST /api/auth/forgot-password` | Envoie un lien de réinitialisation par mail, toujours 202 |
+| `POST /api/auth/reset-password` | Définit le mot de passe à partir d'un lien de réinitialisation ou d'activation |
+| `PATCH /api/me/password` | Change le mot de passe de l'utilisateur connecté, ancien mot de passe requis |
 
-- **Access token** : JWT signé en HS256, valable 15 minutes, à envoyer dans l'en-tête `Authorization: Bearer <token>`. Il contient l'identifiant et le rôle.
+- **Access token** : JWT signé en HS256, valable 15 minutes, à envoyer dans l'en-tête `Authorization: Bearer <token>`. Il contient l'identifiant, le rôle et l'identifiant de session (`sid`).
 - **Refresh token** : valeur aléatoire valable 7 jours, envoyée dans le cookie `refresh_token` (`httpOnly`, `SameSite=Strict`, path `/api/auth`, `Secure` en production). Seul son hash SHA-256 est stocké en base.
 - **Rotation** : chaque appel à `refresh` révoque le token utilisé et en émet un nouveau. Un token présenté une seconde fois révoque toute la session.
 - **Routes protégées par défaut** : `AuthGuard` est global. Une route ouverte se marque avec `@Public()`.
 - **Anti-énumération** : email inconnu, mot de passe faux, compte supprimé et compte sans mot de passe renvoient le même 401, après un temps de calcul équivalent.
 
+### Mots de passe
+
+- **Politique** : 12 à 128 caractères, et refus des mots de passe courants. La liste `src/auth/common-passwords.txt` reprend les entrées de 12 caractères ou plus des 100 000 mots de passe les plus utilisés publiés par le NCSC britannique (dépôt SecLists, licence MIT). La comparaison ignore la casse.
+- **Liens par mail** : jeton aléatoire de 32 octets, dont seul le hash SHA-256 est stocké dans `password_reset_tokens`. Il sert une seule fois. Le lien de réinitialisation vaut 30 minutes et le lien d'activation 72 heures. Demander un nouveau lien invalide le précédent.
+- **Activation** : `PasswordManagementService.sendActivation(userId)` envoie le lien `APP_URL/activate?token=…` à un compte créé sans mot de passe. La création des comptes par un manager (B-07) l'appellera.
+- **Réinitialisation** : `forgot-password` répond tout de suite et pareil que l'email existe ou non. La recherche du compte et l'envoi du mail se font après la réponse, pour que le temps de réponse ne trahisse pas l'existence du compte. Un mot de passe redéfini révoque toutes les sessions du compte.
+- **Changement** : `PATCH /api/me/password` révoque les autres sessions et garde la session courante, retrouvée grâce au `sid` de l'access token. Les access tokens déjà émis restent valables jusqu'à leur expiration, 15 minutes au plus.
+
+### Anti brute-force
+
+Les échecs sont comptés dans la table `auth_attempts`, sous une clé hachée : ni l'IP ni l'email n'y sont stockés en clair. Au-delà de 5 tentatives en 15 minutes, la route renvoie 429 jusqu'à ce que la plus ancienne sorte de la fenêtre.
+
+| Route | Ce qui est compté | Clé |
+| --- | --- | --- |
+| `POST /api/auth/login` | Échecs, remis à zéro par une connexion réussie | IP + email |
+| `POST /api/auth/forgot-password` | Toutes les demandes | IP + email |
+| `PATCH /api/me/password` | Mots de passe actuels erronés | Utilisateur |
+
+Le compteur est en base plutôt qu'en mémoire : il survit aux redémarrages et reste juste si plusieurs instances du backend tournent. `reset-password` n'est pas limité : le jeton fait 256 bits, il ne se devine pas.
+
 Dans un contrôleur, l'utilisateur connecté se récupère avec `@CurrentUser() user: AuthenticatedUser`. Le type doit être importé avec `import type`, sinon la compilation échoue.
 
 ## Mails en développement
 
-Mailpit intercepte les mails envoyés par le backend (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`) et les affiche sur http://localhost:8025. Aucun mail ne sort réellement.
+Mailpit intercepte les mails envoyés par le backend (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`) et les affiche sur http://localhost:8025. Aucun mail ne sort réellement. Les tests d'intégration remplacent `MailService` par un faux qui garde les mails en mémoire.
 
 ## Documentation de l'API
 

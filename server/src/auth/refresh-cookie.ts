@@ -28,7 +28,7 @@ export function readRefreshCookie(request: Request): string | undefined {
 
 export function setRefreshCookie(
   response: Response,
-  refreshToken: IssuedRefreshToken,
+  refreshToken: Pick<IssuedRefreshToken, 'token' | 'expiresAt'>,
   secure: boolean,
 ): void {
   response.cookie(REFRESH_COOKIE_NAME, refreshToken.token, {

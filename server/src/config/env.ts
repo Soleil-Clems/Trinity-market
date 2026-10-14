@@ -17,6 +17,12 @@ export const envSchema = z.object({
     .pipe(z.array(z.url()).min(1)),
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   JWT_SECRET: z.string().min(32),
+  APP_URL: z
+    .url({ protocol: /^https?$/ })
+    .transform((url) => url.replace(/\/+$/, '')),
+  SMTP_HOST: z.string().min(1),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535),
+  MAIL_FROM: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

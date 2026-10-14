@@ -6,6 +6,7 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   INVALID_CREDENTIALS_MESSAGE,
 } from './auth.constants.js';
+import { AttemptLimiterService } from './attempt-limiter.service.js';
 import { PasswordService } from './password.service.js';
 import {
   IssuedRefreshToken,
@@ -15,6 +16,7 @@ import {
 export interface AccessTokenPayload {
   sub: string;
   role: Role;
+  sid: string;
 }
 
 export interface SessionUser {
@@ -48,9 +50,12 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly passwords: PasswordService,
     private readonly refreshTokens: RefreshTokenService,
+    private readonly limiter: AttemptLimiterService,
   ) {}
 
-  async login(email: string, password: string): Promise<Session> {
+  async login(email: string, password: string, ip: string): Promise<Session> {
+    await this.limiter.assertAllowed('login', [ip, email]);
+
     const account = await this.prisma.user.findUnique({
       where: { email },
       select: { ...SESSION_USER_FIELDS, passwordHash: true, deletedAt: true },
@@ -62,8 +67,11 @@ export class AuthService {
     );
 
     if (!isActive || !passwordMatches) {
+      await this.limiter.record('login', [ip, email]);
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
     }
+
+    await this.limiter.reset('login', [ip, email]);
 
     const {
       passwordHash: _passwordHash,
@@ -101,7 +109,11 @@ export class AuthService {
     user: SessionUser,
     refreshToken: IssuedRefreshToken,
   ): Promise<Session> {
-    const payload: AccessTokenPayload = { sub: user.id, role: user.role };
+    const payload: AccessTokenPayload = {
+      sub: user.id,
+      role: user.role,
+      sid: refreshToken.familyId,
+    };
 
     return {
       accessToken: await this.jwt.signAsync(payload),
