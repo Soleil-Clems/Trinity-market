@@ -33,5 +33,5 @@ import { PrismaModule } from './prisma/prisma.module.js';
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_PIPE, useClass: ZodValidationPipe },
   ],
-})
+})  
 export class AppModule {}
