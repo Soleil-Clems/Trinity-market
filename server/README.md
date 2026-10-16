@@ -132,6 +132,25 @@ Les guards s'exécutent dans cet ordre : `AuthGuard` (401), `RolesGuard` puis `O
 
 Dans un contrôleur, l'utilisateur connecté se récupère avec `@CurrentUser() user: AuthenticatedUser`. Le type doit être importé avec `import type`, sinon la compilation échoue.
 
+## Utilisateurs
+
+| Route | Qui | Rôle |
+| --- | --- | --- |
+| `GET /api/users` | Manager, admin | Liste paginée (`page`, `pageSize` ≤ 100), recherche mot par mot dans prénom, nom et email (`search`), filtres `role` et `teamId` |
+| `POST /api/users` | Manager, admin | Crée le compte, l'ajoute à ses équipes (`teamIds`) et envoie le lien d'activation |
+| `GET /api/users/{id}` | Soi, manager de ses équipes, admin | Détail d'un compte |
+| `PATCH /api/users/{id}` | Manager de ses équipes, admin | Prénom, nom, email, téléphone, heures contractuelles |
+| `DELETE /api/users/{id}` | Manager de ses équipes, admin | Anonymise le compte |
+| `GET /api/me`, `PATCH /api/me`, `DELETE /api/me` | Tout utilisateur connecté | Son propre compte ; `PATCH` ne modifie que prénom, nom et téléphone |
+| `PATCH /api/me/password` | Tout utilisateur connecté | Change son mot de passe |
+
+- **Création par un manager** : `teamIds` est obligatoire et ne contient que ses équipes, sinon 422 ou 403. Il ne crée que des `EMPLOYEE`. Le compte et ses appartenances sont créés dans la même requête, pour que le manager voie tout de suite la personne. Un admin choisit le rôle, et les équipes sont facultatives.
+- **Statut** : `INVITED` tant que le lien d'activation n'a pas servi, `ACTIVE` ensuite.
+- **Validation** : téléphone au format international (`+33612345678`, espaces et points acceptés puis retirés), contrat de 1 à 2880 minutes par semaine (48 h), fuseau horaire IANA. Un champ inconnu ou non modifiable renvoie 422.
+- **Email déjà utilisé** : 409, sans tenir compte de la casse.
+- **Suppression** : le compte est anonymisé (nom, email, téléphone, identifiant Microsoft et mot de passe effacés), ses sessions et liens en cours sont révoqués, et ses pointages sont conservés. Un compte qui gère encore des équipes renvoie 409 : il faut d'abord confier ses équipes à un autre manager.
+- **Sortie** : `user.presenter.ts` construit la réponse champ par champ. Ni `passwordHash`, ni `microsoftId`, ni aucun token n'en sortent.
+
 ## Mails en développement
 
 Mailpit intercepte les mails envoyés par le backend (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`) et les affiche sur http://localhost:8025. Aucun mail ne sort réellement. Les tests d'intégration remplacent `MailService` par un faux qui garde les mails en mémoire.

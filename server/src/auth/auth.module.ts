@@ -12,7 +12,6 @@ import { ACCESS_TOKEN_TTL_SECONDS } from './auth.constants.js';
 import { AuthController } from './auth.controller.js';
 import { AuthGuard } from './auth.guard.js';
 import { AuthService } from './auth.service.js';
-import { MePasswordController } from './me-password.controller.js';
 import { PasswordManagementService } from './password-management.service.js';
 import { PasswordTokenService } from './password-token.service.js';
 import { PasswordService } from './password.service.js';
@@ -33,7 +32,7 @@ import { RefreshTokenService } from './refresh-token.service.js';
       }),
     }),
   ],
-  controllers: [AuthController, MePasswordController],
+  controllers: [AuthController],
   providers: [
     AccessPolicyService,
     AuthService,

@@ -11,6 +11,7 @@ import { ZodValidationPipe } from './common/validation/zod-validation.pipe.js';
 import { Env, validateEnv } from './config/env.js';
 import { HealthController } from './health/health.controller.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { UsersModule } from './users/users.module.js';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
     }),
     PrismaModule,
     AuthModule,
+    UsersModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
