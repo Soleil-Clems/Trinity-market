@@ -4,6 +4,9 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { Env } from '../config/env.js';
 import { MailModule } from '../mail/mail.module.js';
+import { AccessPolicyService } from './access/access-policy.service.js';
+import { OwnershipGuard } from './access/ownership.guard.js';
+import { RolesGuard } from './access/roles.guard.js';
 import { AttemptLimiterService } from './attempt-limiter.service.js';
 import { ACCESS_TOKEN_TTL_SECONDS } from './auth.constants.js';
 import { AuthController } from './auth.controller.js';
@@ -32,6 +35,7 @@ import { RefreshTokenService } from './refresh-token.service.js';
   ],
   controllers: [AuthController, MePasswordController],
   providers: [
+    AccessPolicyService,
     AuthService,
     AttemptLimiterService,
     PasswordManagementService,
@@ -39,7 +43,9 @@ import { RefreshTokenService } from './refresh-token.service.js';
     PasswordTokenService,
     RefreshTokenService,
     { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: OwnershipGuard },
   ],
-  exports: [PasswordService, PasswordManagementService],
+  exports: [AccessPolicyService, PasswordService, PasswordManagementService],
 })
 export class AuthModule {}

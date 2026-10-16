@@ -100,6 +100,7 @@ services:
       APP_URL: http://localhost:${PUBLIC_PORT:-8080}
     volumes:
       - ./server:/app
+      - ./docs:/docs:ro
       - /app/node_modules
     depends_on:
       database:

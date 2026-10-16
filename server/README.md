@@ -117,6 +117,19 @@ Les échecs sont comptés dans la table `auth_attempts`, sous une clé hachée :
 
 Le compteur est en base plutôt qu'en mémoire : il survit aux redémarrages et reste juste si plusieurs instances du backend tournent. `reset-password` n'est pas limité : le jeton fait 256 bits, il ne se devine pas.
 
+### Rôles et propriété
+
+Trois rôles : `EMPLOYEE` voit ses propres données, `MANAGER` ses équipes et leurs membres, `ADMIN` toute l'entreprise. La matrice route × rôle est dans [`docs/permissions.md`](../docs/permissions.md).
+
+| Outil | Rôle |
+| --- | --- |
+| `@Roles('MANAGER', 'ADMIN')` | Réserve la route aux rôles listés, sans hiérarchie implicite ; 403 sinon |
+| `@CanAccessUser('id')` | L'utilisateur de `:id` doit être soi, un membre d'une équipe gérée, ou n'importe qui pour un admin ; 403 sinon |
+| `@CanAccessTeam('id')` | L'équipe `:id` doit être gérée par le manager, ou n'importe laquelle pour un admin ; 403 sinon |
+| `AccessPolicyService.visibleUsers()` / `visibleTeams()` | Filtre Prisma à appliquer aux routes de liste |
+
+Les guards s'exécutent dans cet ordre : `AuthGuard` (401), `RolesGuard` puis `OwnershipGuard` (403). Le test `test/integration/permissions.int-spec.ts` échoue si une route existe sans ligne dans la matrice, ou si ses décorateurs ne correspondent pas à sa ligne.
+
 Dans un contrôleur, l'utilisateur connecté se récupère avec `@CurrentUser() user: AuthenticatedUser`. Le type doit être importé avec `import type`, sinon la compilation échoue.
 
 ## Mails en développement
